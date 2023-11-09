@@ -17,9 +17,9 @@ class ExamplePatch extends PatchCore {
             CtMethod write1 = c1.getDeclaredMethod("index");
             write1.insertBefore("System.out.println(\"Sakura\");");
 
-            CtClass c2 = new PatchClass("org.example.controller.HackController", "BOOT-INF/classes/").getCtClass();
-            CtMethod write2 = c2.getDeclaredMethod("index");
-            write2.insertBefore("System.out.println(\"Sakura\");");
+//            CtClass c2 = new PatchClass("com.ctf.BoardServlet", "").getCtClass();
+//            CtMethod write2 = c2.getDeclaredMethod("index");
+//            write2.insertBefore("System.out.println(\"Sakura\");");
 
             CtClass c3 = new PatchClass("org.springframework.boot.loader.JarLauncher", "").getCtClass();
             CtMethod write3 = c3.getDeclaredMethod("main");
@@ -40,7 +40,8 @@ public class Main {
 
     public static void main(String[] args) throws Exception {
         PatchCore patch = new ExamplePatch("example/vulnspringboot-1.0-SNAPSHOT.jar");
-//        patch.addClassRootPath("BOOT-INF/classes/");
+//        patch.addClassRootPath("/usr/local/tomcat/webapps/ROOT/WEB-INF/classes/");
+//        patch.setCleanAfterPatch(false);
         patch.run();
     }
 }

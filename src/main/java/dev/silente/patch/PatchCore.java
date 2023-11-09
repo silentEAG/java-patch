@@ -28,13 +28,17 @@ public abstract class PatchCore {
     List<String> classRootPaths = new ArrayList<>();
 
     public void addClassRootPath(String classRootPath) {
-        classRootPaths.add(destPath.resolve(classRootPath).toString());
+        classRootPaths.add(classRootPath);
     }
 
     protected List<PatchClass> patchClasses = new ArrayList<>();
     protected List<PatchLibrary> patchLibraries = new ArrayList<>();
 
     boolean cleanAfterPatch = true;
+
+    public void setCleanAfterPatch(boolean cleanAfterPatch) {
+        this.cleanAfterPatch = cleanAfterPatch;
+    }
 
     public PatchCore(String jarFilePath) {
         this.jarFilePath = Paths.get(jarFilePath).toAbsolutePath();
@@ -177,14 +181,13 @@ public abstract class PatchCore {
 
         // 添加 classRootPath
         // 默认添加下面 2 条路径
-        addClassRootPath("BOOT-INF/classes");
-        addClassRootPath("");
+        addClassRootPath(destPath.resolve("BOOT-INF/classes").toString());
+        addClassRootPath(destPath.toString());
 
         // 准备 ClassPool
         pool = ClassPool.getDefault();
         for (String classRootPath: classRootPaths) {
             pool.appendClassPath(classRootPath);
-            pool.appendClassPath(destPath.toString());
         }
 
         // 自定义 patch 工作
