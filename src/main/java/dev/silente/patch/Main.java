@@ -25,6 +25,11 @@ class ExamplePatch extends PatchCore {
             CtMethod write3 = c3.getDeclaredMethod("main");
             write3.insertBefore("System.out.println(\"Sakura\");");
 
+            PatchLibrary patchLibrary = new PatchLibrary("hessian-4.0.4.jar",  "BOOT-INF/lib/");
+            CtClass c4 = patchLibrary.getCtClass("com.alipay.hessian.NameBlackListFilter");
+            CtMethod write4 = c4.getDeclaredMethod("resolve");
+            write4.insertBefore("System.out.println(\"Sakura\");");
+
         } catch (Exception e) {
             System.out.println(e);
         }
@@ -34,7 +39,8 @@ class ExamplePatch extends PatchCore {
 public class Main {
 
     public static void main(String[] args) throws Exception {
-        PatchCore patchCode = new ExamplePatch("example/vulnspringboot-1.0-SNAPSHOT.jar");
-        patchCode.run();
+        PatchCore patch = new ExamplePatch("example/vulnspringboot-1.0-SNAPSHOT.jar");
+//        patch.addClassRootPath("BOOT-INF/classes/");
+        patch.run();
     }
 }

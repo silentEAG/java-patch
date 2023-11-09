@@ -1,5 +1,6 @@
 package dev.silente.patch;
 
+import com.sun.istack.internal.Nullable;
 import javassist.*;
 import java.io.*;
 import java.nio.file.Files;
@@ -16,15 +17,22 @@ public abstract class PatchCore {
 
     // 待 patch 的 jar 包
     Path jarFilePath;
+    // patch 之后的 jar 包
     Path jarPatchFilePath;
-
-    // 将 jar 包 class 文件解压到哪个目录下
-    Path destPath =  Paths.get("source").toAbsolutePath();
+    // jar 包 class 文件解压的目录
+    Path destPath =  Paths.get("source");
+    // patch class 生成的目录
     Path patchPath = Paths.get("patch");
 
     ClassPool pool;
+    List<String> classRootPaths = new ArrayList<>();
+
+    public void addClassRootPath(String classRootPath) {
+        classRootPaths.add(destPath.resolve(classRootPath).toString());
+    }
 
     protected List<PatchClass> patchClasses = new ArrayList<>();
+    protected List<PatchLibrary> patchLibraries = new ArrayList<>();
 
     boolean cleanAfterPatch = true;
 
@@ -35,6 +43,48 @@ public abstract class PatchCore {
     public PatchCore(String jarFilePath, String desPath) {
         this(jarFilePath);
         this.destPath = Paths.get(desPath).toAbsolutePath();
+    }
+
+    class PatchLibrary {
+        String libName;
+        String patchPrefix;
+        Path extractDir;
+        Path libFile;
+
+        List<CtClass> patchClasses = new ArrayList<>();
+
+
+        public PatchLibrary(String libName,  String patchPrefix) throws NotFoundException, IOException {
+            this.libName = libName;
+            this.patchPrefix = patchPrefix;
+
+            if (!destPath.resolve(patchPrefix).resolve(libName).toFile().exists()) {
+                throw new RuntimeException("lib not found");
+            }
+
+            libFile = patchPath.resolve(patchPrefix).resolve(libName);
+
+            if (!libFile.getParent().toFile().exists()) {
+                libFile.getParent().toFile().mkdirs();
+            }
+
+            copyFile(destPath.resolve(patchPrefix).resolve(libName), libFile);
+
+            String _extractDir = libName.replace(".", "_");
+            extractDir = libFile.getParent().resolve(_extractDir);
+
+            decompressFromJar(libFile, extractDir);
+
+            patchLibraries.add(this);
+
+            pool.appendClassPath(extractDir.toString());
+        }
+
+        public CtClass getCtClass(String className) throws NotFoundException {
+            CtClass clz = pool.get(className);
+            patchClasses.add(clz);
+            return clz;
+        }
     }
 
     class PatchClass {
@@ -65,7 +115,7 @@ public abstract class PatchCore {
 
         ProcessBuilder decompress = new ProcessBuilder();
         decompress.directory(destPath.toFile());
-        decompress.command("jar", "xf", jarFilePath.toString());
+        decompress.command("jar", "xf", jarFilePath.toAbsolutePath().toString());
         try {
             Process p = decompress.start();
             p.waitFor();
@@ -78,7 +128,7 @@ public abstract class PatchCore {
 
         List<String> commandList = new ArrayList<>();
         commandList.add("jar");
-        commandList.add("uf");
+        commandList.add("uf0");
         commandList.add(jarFilePath.toString());
 
         for (String classPath: classPaths) {
@@ -88,6 +138,7 @@ public abstract class PatchCore {
         }
 
         ProcessBuilder updateJar = new ProcessBuilder(commandList);
+        System.out.println(commandList);
         updateJar.directory(jarFilePath.toAbsolutePath().getParent().toFile());
         try {
             Process p = updateJar.start();
@@ -123,14 +174,18 @@ public abstract class PatchCore {
 
         // 解压原 jar 包 classes
         decompressFromJar(jarFilePath, destPath);
-        // 目前仅支持修改非依赖 classes
-        String classRootPath = destPath.resolve("BOOT-INF").resolve("classes").toString();
+
+        // 添加 classRootPath
+        // 默认添加下面 2 条路径
+        addClassRootPath("BOOT-INF/classes");
+        addClassRootPath("");
 
         // 准备 ClassPool
         pool = ClassPool.getDefault();
-        pool.appendClassPath(classRootPath);
-        System.out.println("destPath: " + destPath.toString());
-        pool.appendClassPath(destPath.toString());
+        for (String classRootPath: classRootPaths) {
+            pool.appendClassPath(classRootPath);
+            pool.appendClassPath(destPath.toString());
+        }
 
         // 自定义 patch 工作
         this.patch(pool);
@@ -143,29 +198,67 @@ public abstract class PatchCore {
         }
     }
 
+    public void packageJarFile(Path targetPath, Path sourcePath) {
+        List<String> commandList = new ArrayList<>();
+        commandList.add("jar");
+        commandList.add("cf0M");
+        commandList.add(targetPath.toAbsolutePath().toString());
+        commandList.add(".");
+
+        ProcessBuilder packageJar = new ProcessBuilder(commandList);
+        packageJar.directory(sourcePath.toFile());
+        System.out.println(commandList);
+        try {
+            Process p = packageJar.start();
+            p.waitFor();
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+
     // 自定义 patch
     public abstract void patch(ClassPool pool);
 
     public void modity() {
-
-        if (!patchPath.toFile().exists()) {
-            patchPath.toFile().mkdir();
-        }
-
-        List<String> classTargetPaths = new ArrayList<>();
         try {
+            for (PatchLibrary patchLibrary: patchLibraries) {
+
+                String patchedPath = patchPath.resolve(patchLibrary.libName.replace(".", "_")).toString();
+                List<String> classTargetPaths = new ArrayList<>();
+
+                for (CtClass ct: patchLibrary.patchClasses) {
+                    ct.writeFile(patchLibrary.extractDir.toString());
+                    String patchClassPath = ct.getName().replace('.', '/');
+                    String classTargetPath = patchClassPath + ".class";
+                    classTargetPaths.add(classTargetPath);
+                }
+
+                packageJarFile(patchLibrary.libFile, patchLibrary.extractDir);
+
+                deleteAll(patchLibrary.extractDir.toFile());
+            }
+
+            if (!patchPath.toFile().exists()) {
+                patchPath.toFile().mkdir();
+            }
+
+            List<String> classTargetPaths = new ArrayList<>();
+            classTargetPaths.add(".");
+
             for (PatchClass patchClass: patchClasses) {
                 String patchedPath = patchPath.resolve(patchClass.patchPrefix).toString();
                 patchClass.ctClass.writeFile(patchedPath);
                 String patchClassPath = patchClass.ctClass.getName().replace('.', '/');
                 String classTargetPath = patchClass.patchPrefix + patchClassPath + ".class";
-                classTargetPaths.add(classTargetPath);
+//                classTargetPaths.add(classTargetPath);
             }
+
+            // 更新 patch jar
+            updateJarFile(jarPatchFilePath, patchPath, classTargetPaths);
         } catch (CannotCompileException | IOException e) {
             throw new RuntimeException("patch class failed: " + e);
         }
 
-        // 更新 patch jar
-        updateJarFile(jarPatchFilePath, patchPath, classTargetPaths);
+
     }
 }
