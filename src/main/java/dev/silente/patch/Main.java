@@ -13,17 +13,18 @@ class ExamplePatch extends PatchCore {
     @Override
     public void patch(ClassPool pool) {
         try {
-            CtClass c1 = pool.get("org.example.controller.SCtfController");
+            CtClass c1 = new PatchClass("org.example.controller.SCtfController", "BOOT-INF/classes/").getCtClass();
             CtMethod write1 = c1.getDeclaredMethod("index");
             write1.insertBefore("System.out.println(\"Sakura\");");
 
-            patchClasses.add(c1);
-
-            CtClass c2 = pool.get("org.example.controller.HackController");
+            CtClass c2 = new PatchClass("org.example.controller.HackController", "BOOT-INF/classes/").getCtClass();
             CtMethod write2 = c2.getDeclaredMethod("index");
             write2.insertBefore("System.out.println(\"Sakura\");");
 
-            patchClasses.add(c2);
+            CtClass c3 = new PatchClass("org.springframework.boot.loader.JarLauncher", "").getCtClass();
+            CtMethod write3 = c3.getDeclaredMethod("main");
+            write3.insertBefore("System.out.println(\"Sakura\");");
+
         } catch (Exception e) {
             System.out.println(e);
         }

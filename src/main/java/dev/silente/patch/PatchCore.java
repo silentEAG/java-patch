@@ -12,14 +12,19 @@ import java.util.Objects;
 
 public abstract class PatchCore {
 
+
+
     // 待 patch 的 jar 包
     Path jarFilePath;
     Path jarPatchFilePath;
 
     // 将 jar 包 class 文件解压到哪个目录下
-    Path destPath =  Paths.get("./source").toAbsolutePath();
+    Path destPath =  Paths.get("source").toAbsolutePath();
+    Path patchPath = Paths.get("patch");
 
-    protected List<CtClass> patchClasses = new ArrayList<>();
+    ClassPool pool;
+
+    protected List<PatchClass> patchClasses = new ArrayList<>();
 
     boolean cleanAfterPatch = true;
 
@@ -30,6 +35,26 @@ public abstract class PatchCore {
     public PatchCore(String jarFilePath, String desPath) {
         this(jarFilePath);
         this.destPath = Paths.get(desPath).toAbsolutePath();
+    }
+
+    class PatchClass {
+        String className;
+        String patchPrefix;
+        CtClass ctClass;
+
+
+        public PatchClass(String className, String patchPrefix) throws NotFoundException {
+            this.className = className;
+            this.patchPrefix = patchPrefix;
+
+            patchClasses.add(this);
+
+            ctClass = pool.get(className);
+        }
+
+        public CtClass getCtClass() {
+            return ctClass;
+        }
     }
 
     public static void decompressFromJar(Path jarFilePath, Path destPath) {
@@ -49,14 +74,18 @@ public abstract class PatchCore {
         }
     }
 
-    public static void updateJarFile(Path jarFilePath, List<String> classPaths) {
+    public static void updateJarFile(Path jarFilePath, Path patchPath, List<String> classPaths) {
 
         List<String> commandList = new ArrayList<>();
         commandList.add("jar");
         commandList.add("uf");
         commandList.add(jarFilePath.toString());
 
-        commandList.addAll(classPaths);
+        for (String classPath: classPaths) {
+            commandList.add("-C");
+            commandList.add(patchPath.toString());
+            commandList.add(classPath);
+        }
 
         ProcessBuilder updateJar = new ProcessBuilder(commandList);
         updateJar.directory(jarFilePath.toAbsolutePath().getParent().toFile());
@@ -96,11 +125,12 @@ public abstract class PatchCore {
         decompressFromJar(jarFilePath, destPath);
         // 目前仅支持修改非依赖 classes
         String classRootPath = destPath.resolve("BOOT-INF").resolve("classes").toString();
-        String patchedPath = "BOOT-INF/classes/";
 
         // 准备 ClassPool
-        ClassPool pool = ClassPool.getDefault();
+        pool = ClassPool.getDefault();
         pool.appendClassPath(classRootPath);
+        System.out.println("destPath: " + destPath.toString());
+        pool.appendClassPath(destPath.toString());
 
         // 自定义 patch 工作
         this.patch(pool);
@@ -108,7 +138,7 @@ public abstract class PatchCore {
         this.modity();
 
         if (cleanAfterPatch) {
-            deleteAll(Paths.get("BOOT-INF").toFile());
+            deleteAll(patchPath.toFile());
             deleteAll(destPath.toFile());
         }
     }
@@ -117,14 +147,18 @@ public abstract class PatchCore {
     public abstract void patch(ClassPool pool);
 
     public void modity() {
-        String patchedPath = "BOOT-INF/classes/";
+
+        if (!patchPath.toFile().exists()) {
+            patchPath.toFile().mkdir();
+        }
 
         List<String> classTargetPaths = new ArrayList<>();
         try {
-            for (CtClass patchClass: patchClasses) {
-                patchClass.writeFile(patchedPath);
-                String patchClassPath = patchClass.getName().replace('.', '/');
-                String classTargetPath = patchedPath + patchClassPath + ".class";
+            for (PatchClass patchClass: patchClasses) {
+                String patchedPath = patchPath.resolve(patchClass.patchPrefix).toString();
+                patchClass.ctClass.writeFile(patchedPath);
+                String patchClassPath = patchClass.ctClass.getName().replace('.', '/');
+                String classTargetPath = patchClass.patchPrefix + patchClassPath + ".class";
                 classTargetPaths.add(classTargetPath);
             }
         } catch (CannotCompileException | IOException e) {
@@ -132,6 +166,6 @@ public abstract class PatchCore {
         }
 
         // 更新 patch jar
-        updateJarFile(jarPatchFilePath, classTargetPaths);
+        updateJarFile(jarPatchFilePath, patchPath, classTargetPaths);
     }
 }
